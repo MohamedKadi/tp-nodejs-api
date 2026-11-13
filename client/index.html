@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Posts Manager</title>
+<style>
+  :root {
+    --bg: #f5f6f8; --card: #fff; --text: #1f2430; --muted: #6b7280;
+    --primary: #2563eb; --danger: #dc2626; --border: #e5e7eb;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    background: var(--bg); color: var(--text);
+  }
+  header {
+    background: var(--primary); color: #fff; padding: 16px 24px;
+    display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;
+  }
+  header h1 { margin: 0; font-size: 1.25rem; }
+  #count { opacity: .9; font-size: .9rem; }
+  main { max-width: 1000px; margin: 0 auto; padding: 24px; }
+  .panel {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 10px; padding: 16px; margin-bottom: 24px;
+  }
+  .panel h2 { margin: 0 0 12px; font-size: 1.05rem; }
+  form { display: grid; gap: 10px; }
+  .row { display: grid; grid-template-columns: 100px 1fr; gap: 10px; }
+  input, textarea {
+    width: 100%; padding: 9px 10px; border: 1px solid var(--border);
+    border-radius: 6px; font: inherit;
+  }
+  textarea { min-height: 80px; resize: vertical; }
+  .actions { display: flex; gap: 8px; }
+  button {
+    border: 0; border-radius: 6px; padding: 8px 14px; font: inherit;
+    cursor: pointer; background: var(--primary); color: #fff;
+  }
+  button.secondary { background: #e5e7eb; color: var(--text); }
+  button.danger { background: var(--danger); }
+  button.small { padding: 5px 10px; font-size: .85rem; }
+  .toolbar { display: flex; gap: 10px; margin-bottom: 16px; }
+  .toolbar input { flex: 1; }
+  #list { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
+  .post {
+    background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+    padding: 14px; display: flex; flex-direction: column; gap: 8px;
+  }
+  .meta { font-size: .78rem; color: var(--muted); }
+  .post h3 { margin: 0; font-size: 1rem; text-transform: capitalize; }
+  .post p { margin: 0; color: #374151; font-size: .9rem; flex: 1; }
+  .post .actions { margin-top: 4px; }
+  #status { padding: 10px 14px; border-radius: 6px; margin-bottom: 16px; display: none; }
+  #status.error { display: block; background: #fee2e2; color: #991b1b; }
+  #status.ok { display: block; background: #dcfce7; color: #166534; }
+  .empty { color: var(--muted); text-align: center; padding: 24px; grid-column: 1 / -1; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>📝 Posts Manager</h1>
+  <span id="count"></span>
+</header>
+
+<main>
+  <div id="status"></div>
+
+  <section class="panel">
+    <h2 id="form-title">Nouveau post</h2>
+    <form id="post-form">
+      <input type="hidden" id="post-id">
+      <div class="row">
+        <input type="number" id="userId" placeholder="userId" min="1" value="1" required>
+        <input type="text" id="title" placeholder="Titre" required>
+      </div>
+      <textarea id="body" placeholder="Contenu" required></textarea>
+      <div class="actions">
+        <button type="submit" id="submit-btn">Créer</button>
+        <button type="button" class="secondary" id="cancel-btn" style="display:none">Annuler</button>
+      </div>
+    </form>
+  </section>
+
+  <div class="toolbar">
+    <input type="search" id="search" placeholder="Rechercher par titre ou contenu...">
+    <button class="secondary" id="reload-btn">Recharger</button>
+  </div>
+
+  <section id="list"></section>
+</main>
+
+<script>
+  const API = 'http://localhost:3000/api/posts';
+
+  let posts = [];
+
+  const $ = (id) => document.getElementById(id);
+  const listEl = $('list');
+  const statusEl = $('status');
+
+  function showStatus(message, type = 'ok') {
+    statusEl.textContent = message;
+    statusEl.className = type;
+    clearTimeout(showStatus.timer);
+    showStatus.timer = setTimeout(() => (statusEl.className = ''), 3500);
+  }
+
+  // Wrapper fetch qui lève une erreur lisible si le serveur répond avec un code d'erreur
+  async function request(url, options) {
+    const res = await fetch(url, options);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `Erreur HTTP ${res.status}`);
+    return data;
+  }
+
+  async function loadPosts() {
+    try {
+      posts = await request(API);
+      render();
+    } catch (err) {
+      showStatus(`Impossible de charger les posts : ${err.message}. Le serveur tourne-t-il sur le port 3000 ?`, 'error');
+    }
+  }
+
+  function render() {
+    const q = $('search').value.trim().toLowerCase();
+    const filtered = posts.filter(
+      (p) => p.title.toLowerCase().includes(q) || p.body.toLowerCase().includes(q)
+    );
+
+    $('count').textContent = `${filtered.length} / ${posts.length} posts`;
+    listEl.replaceChildren();
+
+    if (!filtered.length) {
+      const empty = document.createElement('div');
+      empty.className = 'empty';
+      empty.textContent = 'Aucun post à afficher.';
+      listEl.append(empty);
+      return;
+    }
+
+    // Les plus récents (id le plus grand) d'abord
+    [...filtered].sort((a, b) => b.id - a.id).forEach((p) => listEl.append(card(p)));
+  }
+
+  function card(p) {
+    const el = document.createElement('article');
+    el.className = 'post';
+
+    const meta = document.createElement('div');
+    meta.className = 'meta';
+    meta.textContent = `#${p.id} · userId ${p.userId}`;
+
+    const h3 = document.createElement('h3');
+    h3.textContent = p.title;
+
+    const body = document.createElement('p');
+    body.textContent = p.body;
+
+    const actions = document.createElement('div');
+    actions.className = 'actions';
+
+    const edit = document.createElement('button');
+    edit.className = 'small secondary';
+    edit.textContent = 'Modifier';
+    edit.onclick = () => startEdit(p);
+
+    const del = document.createElement('button');
+    del.className = 'small danger';
+    del.textContent = 'Supprimer';
+    del.onclick = () => removePost(p);
+
+    actions.append(edit, del);
+    el.append(meta, h3, body, actions);
+    return el;
+  }
+
+  function startEdit(p) {
+    $('post-id').value = p.id;
+    $('userId').value = p.userId;
+    $('title').value = p.title;
+    $('body').value = p.body;
+    $('form-title').textContent = `Modifier le post #${p.id}`;
+    $('submit-btn').textContent = 'Enregistrer';
+    $('cancel-btn').style.display = '';
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function resetForm() {
+    $('post-form').reset();
+    $('post-id').value = '';
+    $('userId').value = 1;
+    $('form-title').textContent = 'Nouveau post';
+    $('submit-btn').textContent = 'Créer';
+    $('cancel-btn').style.display = 'none';
+  }
+
+  async function removePost(p) {
+    if (!confirm(`Supprimer le post #${p.id} ?`)) return;
+    try {
+      await request(`${API}/${p.id}`, { method: 'DELETE' });
+      showStatus(`Post #${p.id} supprimé`);
+      await loadPosts();
+    } catch (err) {
+      showStatus(err.message, 'error');
+    }
+  }
+
+  $('post-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const id = $('post-id').value;
+    const payload = {
+      userId: Number($('userId').value),
+      title: $('title').value.trim(),
+      body: $('body').value.trim(),
+    };
+
+    try {
+      if (id) {
+        await request(`${API}/${id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        showStatus(`Post #${id} mis à jour`);
+      } else {
+        const created = await request(API, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        showStatus(`Post #${created.id} créé`);
+      }
+      resetForm();
+      await loadPosts();
+    } catch (err) {
+      showStatus(err.message, 'error');
+    }
+  });
+
+  $('cancel-btn').addEventListener('click', resetForm);
+  $('search').addEventListener('input', render);
+  $('reload-btn').addEventListener('click', loadPosts);
+
+  loadPosts();
+</script>
+</body>
+</html>
